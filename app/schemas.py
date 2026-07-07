@@ -1,5 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -46,3 +47,29 @@ class PnlByMonthOut(BaseModel):
     month: datetime
     pnl_net: Decimal
     trade_count: int
+
+
+AllocationType = Literal["profit_share", "payout", "reserve", "reinvestment", "correction"]
+
+
+class AllocationOut(BaseModel):
+    id: UUID
+    account_id: UUID
+    type: AllocationType
+    amount: Decimal
+    period_start: date | None
+    period_end: date | None
+    computed_from: dict
+    memo: str | None
+    created_at: datetime
+    created_by: str
+
+
+class AllocationCreate(BaseModel):
+    type: AllocationType
+    amount: Decimal
+    period_start: date | None = None
+    period_end: date | None = None
+    computed_from: dict = {}
+    memo: str | None = None
+    created_by: str = "manual"

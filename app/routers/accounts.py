@@ -2,12 +2,15 @@ from datetime import date
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
+from psycopg2.extras import Json
 
 from app.database import get_cursor
 from app.schemas import (
     AccountBalanceOut,
     AccountOut,
     AccountStatusHistoryOut,
+    AllocationCreate,
+    AllocationOut,
     PnlByDayOut,
     PnlByMonthOut,
 )
@@ -95,3 +98,42 @@ def get_account_pnl_monthly(account_id: UUID, start: date | None = None, end: da
 
         cur.execute(query, params)
         return cur.fetchall()
+
+
+@router.get("/{account_id}/allocations", response_model=list[AllocationOut])
+def list_account_allocations(account_id: UUID):
+    with get_cursor() as cur:
+        _require_account_exists(cur, account_id)
+
+        cur.execute(
+            "SELECT id, account_id, type, amount, period_start, period_end, "
+            "computed_from, memo, created_at, created_by "
+            "FROM allocations WHERE account_id = %s ORDER BY created_at",
+            (str(account_id),),
+        )
+        return cur.fetchall()
+
+
+@router.post("/{account_id}/allocations", response_model=AllocationOut, status_code=201)
+def create_account_allocation(account_id: UUID, body: AllocationCreate):
+    with get_cursor() as cur:
+        _require_account_exists(cur, account_id)
+
+        cur.execute(
+            "INSERT INTO allocations (account_id, type, amount, period_start, period_end, "
+            "computed_from, memo, created_by) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+            "RETURNING id, account_id, type, amount, period_start, period_end, "
+            "computed_from, memo, created_at, created_by",
+            (
+                str(account_id),
+                body.type,
+                body.amount,
+                body.period_start,
+                body.period_end,
+                Json(body.computed_from),
+                body.memo,
+                body.created_by,
+            ),
+        )
+        return cur.fetchone()
