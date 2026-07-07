@@ -32,3 +32,17 @@ class AccountStatusHistoryOut(BaseModel):
     new_status: str
     changed_at: datetime
     memo: str | None
+
+
+class PnlByDayOut(BaseModel):
+    account_id: UUID
+    day: datetime
+    pnl_net: Decimal
+    trade_count: int
+
+
+class PnlByMonthOut(BaseModel):
+    account_id: UUID
+    month: datetime
+    pnl_net: Decimal
+    trade_count: int
