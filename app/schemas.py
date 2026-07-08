@@ -183,3 +183,132 @@ class DashboardSummaryOut(BaseModel):
     accounts: list[DashboardAccountRow]
     total_capital: Decimal
     total_pnl_today: Decimal
+
+
+StrategyStatus = Literal["draft", "backtesting", "validated", "live", "retired"]
+
+
+class StrategyOut(BaseModel):
+    id: UUID
+    name: str
+    description: str | None
+    rules: dict
+    status: StrategyStatus
+    created_at: datetime
+
+
+class StrategyCreate(BaseModel):
+    name: str
+    description: str | None = None
+    rules: dict
+
+
+class StrategyStatusUpdate(BaseModel):
+    status: StrategyStatus
+
+
+class PositionSizingRuleOut(BaseModel):
+    id: UUID
+    strategy_id: UUID | None
+    account_id: UUID | None
+    method: str
+    parameters: dict
+    created_at: datetime
+
+
+class PositionSizingRuleCreate(BaseModel):
+    strategy_id: UUID | None = None
+    account_id: UUID | None = None
+    method: str
+    parameters: dict = {}
+
+
+class BacktestOut(BaseModel):
+    id: UUID
+    strategy_id: UUID
+    period_start: date
+    period_end: date
+    data_source: str
+    total_trades: int
+    win_rate: float | None
+    total_pnl: Decimal | None
+    max_drawdown: Decimal | None
+    sharpe_ratio: float | None
+    parameters_snapshot: dict
+    created_at: datetime
+
+
+class BacktestCreate(BaseModel):
+    period_start: date
+    period_end: date
+    tags: list[str] = []
+    account_id: UUID | None = None
+
+
+class StrategyValidationOut(BaseModel):
+    id: UUID
+    strategy_id: UUID
+    backtest_id: UUID
+    approved: bool
+    criteria_met: dict
+    notes: str | None
+    created_at: datetime
+
+
+class StrategyValidationCreate(BaseModel):
+    backtest_id: UUID
+    approved: bool
+    criteria_met: dict = {}
+    notes: str | None = None
+
+
+class HoldingOut(BaseModel):
+    id: UUID
+    account_id: UUID
+    symbol: str
+    quantity: Decimal
+    cost_basis: Decimal
+    acquired_date: date
+    asset_class: str
+    created_at: datetime
+
+
+class HoldingCreate(BaseModel):
+    account_id: UUID
+    symbol: str
+    quantity: Decimal
+    cost_basis: Decimal
+    acquired_date: date
+    asset_class: str = "equity"
+
+
+class HoldingUpdate(BaseModel):
+    quantity: Decimal | None = None
+    cost_basis: Decimal | None = None
+    asset_class: str | None = None
+
+
+class PortfolioSnapshotOut(BaseModel):
+    id: UUID
+    account_id: UUID
+    snapshot_date: date
+    total_value: Decimal
+    holdings_detail: dict
+    created_at: datetime
+
+
+class PortfolioSnapshotCreate(BaseModel):
+    account_id: UUID
+    snapshot_date: date
+    total_value: Decimal
+    holdings_detail: dict = {}
+
+
+class PortfolioReturnOut(BaseModel):
+    account_id: UUID
+    period: str
+    start_date: date
+    end_date: date
+    start_value: Decimal
+    end_value: Decimal
+    return_pct: float

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import accounts, analytics, dashboard, journal, portfolio, risk
+from app.routers import accounts, analytics, dashboard, investments, journal, portfolio, risk, strategies
 
 app = FastAPI(title="Trading Management API")
 
@@ -19,6 +19,8 @@ app.include_router(journal.router)
 app.include_router(risk.router)
 app.include_router(analytics.router)
 app.include_router(dashboard.router)
+app.include_router(strategies.router)
+app.include_router(investments.router)
 
 
 @app.get("/health")
