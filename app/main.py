@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import accounts
+from app.routers import accounts, portfolio
 
 app = FastAPI(title="Trading Management API")
 
@@ -14,6 +14,7 @@ app.add_middleware(
 )
 
 app.include_router(accounts.router)
+app.include_router(portfolio.router)
 
 
 @app.get("/health")

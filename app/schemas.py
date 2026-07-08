@@ -73,3 +73,37 @@ class AllocationCreate(BaseModel):
     computed_from: dict = {}
     memo: str | None = None
     created_by: str = "manual"
+
+
+class PortfolioBalanceByType(BaseModel):
+    account_type: str
+    account_count: int
+    total_capital_base: Decimal
+    total_trade_pnl: Decimal
+    total_allocations: Decimal
+    total_balance: Decimal
+
+
+class PortfolioBalanceTotal(BaseModel):
+    account_count: int
+    total_capital_base: Decimal
+    total_trade_pnl: Decimal
+    total_allocations: Decimal
+    total_balance: Decimal
+
+
+class PortfolioBalanceOut(BaseModel):
+    total: PortfolioBalanceTotal
+    by_type: list[PortfolioBalanceByType]
+
+
+class PortfolioPnlByDayOut(BaseModel):
+    day: datetime
+    pnl_net: Decimal
+    trade_count: int
+
+
+class PortfolioPnlByMonthOut(BaseModel):
+    month: datetime
+    pnl_net: Decimal
+    trade_count: int
