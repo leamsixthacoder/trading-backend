@@ -107,3 +107,79 @@ class PortfolioPnlByMonthOut(BaseModel):
     month: datetime
     pnl_net: Decimal
     trade_count: int
+
+
+JournalEntryType = Literal["daily_log", "meeting_note", "general"]
+
+
+class JournalEntryOut(BaseModel):
+    id: UUID
+    account_id: UUID | None
+    entry_date: date
+    entry_type: JournalEntryType
+    content: str
+    created_at: datetime
+
+
+class JournalEntryCreate(BaseModel):
+    account_id: UUID | None = None
+    entry_date: date
+    entry_type: JournalEntryType
+    content: str
+
+
+class RiskRuleOut(BaseModel):
+    id: UUID
+    account_id: UUID | None
+    rule_type: str
+    threshold: Decimal
+    active: bool
+    created_at: datetime
+
+
+class RiskRuleCreate(BaseModel):
+    account_id: UUID | None = None
+    rule_type: str
+    threshold: Decimal
+    active: bool = True
+
+
+class RiskAlertOut(BaseModel):
+    id: UUID
+    account_id: UUID
+    risk_rule_id: UUID
+    triggered_at: datetime
+    actual_value: Decimal
+    threshold_value: Decimal
+    acknowledged: bool
+
+
+class PnlBySetupOut(BaseModel):
+    account_id: UUID
+    setup_tag: str
+    total_pnl: Decimal
+    trade_count: int
+    avg_pnl: Decimal | None
+    win_rate: float | None
+
+
+class PnlByHourOut(BaseModel):
+    account_id: UUID
+    hour_of_day: int
+    total_pnl: Decimal
+    trade_count: int
+
+
+class DashboardAccountRow(BaseModel):
+    account_id: UUID
+    label: str
+    account_type: str
+    status: str
+    current_balance: Decimal
+    today_pnl: Decimal
+
+
+class DashboardSummaryOut(BaseModel):
+    accounts: list[DashboardAccountRow]
+    total_capital: Decimal
+    total_pnl_today: Decimal
