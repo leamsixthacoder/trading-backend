@@ -312,3 +312,92 @@ class PortfolioReturnOut(BaseModel):
     start_value: Decimal
     end_value: Decimal
     return_pct: float
+
+
+class PayoutRuleOut(BaseModel):
+    id: UUID
+    account_type: str
+    profit_split_pct: Decimal
+    min_payout_amount: Decimal | None
+    payout_frequency: str | None
+    notes: str | None
+    effective_date: date
+
+
+class PayoutRuleCreate(BaseModel):
+    account_type: str
+    profit_split_pct: Decimal
+    min_payout_amount: Decimal | None = None
+    payout_frequency: str | None = None
+    notes: str | None = None
+    effective_date: date | None = None
+
+
+class PayoutEligibilityOut(BaseModel):
+    account_id: UUID
+    checked_at: datetime
+    eligible: bool
+    computed_amount: Decimal | None
+    computed_from: dict
+    reason_if_ineligible: str | None
+
+
+class AggregateRiskRuleOut(BaseModel):
+    id: UUID
+    rule_type: str
+    scope: str
+    threshold: Decimal
+    active: bool
+
+
+class AggregateRiskRuleCreate(BaseModel):
+    rule_type: str
+    scope: str
+    threshold: Decimal
+    active: bool = True
+
+
+class AggregateRiskBreach(BaseModel):
+    rule_id: UUID
+    rule_type: str
+    scope: str
+    threshold: Decimal
+    actual: Decimal
+
+
+class AggregateRiskStatusOut(BaseModel):
+    total_open_risk: Decimal
+    total_daily_pnl: Decimal
+    breaches: list[AggregateRiskBreach]
+
+
+class EmotionalStateLogOut(BaseModel):
+    id: UUID
+    logged_at: datetime
+    account_id: UUID | None
+    state_tags: list[str]
+    intensity: int | None
+    note: str | None
+
+
+class EmotionalStateLogCreate(BaseModel):
+    account_id: UUID | None = None
+    state_tags: list[str] = []
+    intensity: int | None = None
+    note: str | None = None
+
+
+class TradeReviewOut(BaseModel):
+    id: UUID
+    trade_id: UUID | None
+    what_happened: str | None
+    what_went_well: str | None
+    what_to_change: str | None
+    created_at: datetime
+
+
+class TradeReviewCreate(BaseModel):
+    trade_id: UUID | None = None
+    what_happened: str | None = None
+    what_went_well: str | None = None
+    what_to_change: str | None = None

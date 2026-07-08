@@ -1,5 +1,9 @@
 """Evaluate active risk_rules against today's trade data and insert
-risk_alerts on breach. Run manually or via cron/after each CSV import.
+risk_alerts on breach. Also evaluates active aggregate_risk_rules
+(Phase 4) across accounts and prints any breaches - there is no
+aggregate-alerts table to persist into, so those are surfaced via
+script output only, same "surface don't enforce" spirit as the
+per-account alerts. Run manually or via cron/after each CSV import.
 
 Alerts are surfaced, not enforced: this never blocks a trade or touches
 positions, it only records that a threshold was crossed. Never dedupes —
@@ -69,6 +73,63 @@ EVALUATORS = {
     "max_position_size": _evaluate_max_position_size,
 }
 
+AGGREGATE_SCOPE_FILTERS = {
+    "all": "TRUE",
+    "funded_only": "account_type IN ('funded_lucid', 'funded_topstep')",
+    "personal_only": "account_type IN ('personal_live', 'personal_portfolio')",
+}
+
+
+def _aggregate_total_open_risk(cur, scope_filter):
+    cur.execute(
+        f"SELECT COALESCE(SUM(t.size * t.entry_price), 0) AS total "
+        f"FROM trades t JOIN accounts a ON a.id = t.account_id "
+        f"WHERE t.exit_time IS NULL AND {scope_filter}"
+    )
+    return cur.fetchone()["total"]
+
+
+def _aggregate_total_daily_pnl(cur, scope_filter):
+    cur.execute(
+        f"SELECT COALESCE(SUM(p.pnl_net), 0) AS total "
+        f"FROM account_pnl_by_day p JOIN accounts a ON a.id = p.account_id "
+        f"WHERE p.day = date_trunc('day', now()) AND {scope_filter}"
+    )
+    return cur.fetchone()["total"]
+
+
+def _evaluate_aggregate_rules(cur):
+    cur.execute(
+        "SELECT id, rule_type, scope, threshold FROM aggregate_risk_rules WHERE active = true"
+    )
+    rules = cur.fetchall()
+
+    breaches = 0
+    for rule in rules:
+        scope_filter = AGGREGATE_SCOPE_FILTERS.get(rule["scope"])
+        if scope_filter is None:
+            print(f"Skipping aggregate rule {rule['id']} with unknown scope '{rule['scope']}'")
+            continue
+
+        if rule["rule_type"] == "total_open_risk":
+            actual = _aggregate_total_open_risk(cur, scope_filter)
+            breached = actual > rule["threshold"]
+        elif rule["rule_type"] == "total_daily_loss_all_accounts":
+            actual = _aggregate_total_daily_pnl(cur, scope_filter)
+            breached = actual <= -rule["threshold"]
+        else:
+            print(f"Skipping unknown aggregate rule_type '{rule['rule_type']}' (rule {rule['id']})")
+            continue
+
+        if breached:
+            breaches += 1
+            print(
+                f"AGGREGATE ALERT: rule {rule['id']} ('{rule['rule_type']}', scope="
+                f"'{rule['scope']}') breached - actual={actual} threshold={rule['threshold']}"
+            )
+
+    return breaches
+
 
 def main():
     conn = psycopg2.connect(DATABASE_URL)
@@ -103,6 +164,8 @@ def main():
                         f"ALERT {alert_id}: account {account_id} breached "
                         f"'{rule['rule_type']}' - actual={actual} threshold={rule['threshold']}"
                     )
+
+            aggregate_breaches = _evaluate_aggregate_rules(cur)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -110,7 +173,7 @@ def main():
     finally:
         conn.close()
 
-    print(f"Done. {alerts_inserted} alert(s) inserted.")
+    print(f"Done. {alerts_inserted} alert(s) inserted, {aggregate_breaches} aggregate breach(es).")
     return alerts_inserted
 
 
