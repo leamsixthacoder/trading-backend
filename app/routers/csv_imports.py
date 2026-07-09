@@ -1,18 +1,18 @@
-import csv
-import io
+import json
+import uuid
 from uuid import UUID
 
 import psycopg2
+import psycopg2.extras
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from psycopg2.extras import Json
 
-from app.csv_platforms import PLATFORM_MAPS, RowError, ValidatedTrade, validate_row
-from app.database import get_cursor
-from app.schemas import CsvImportOut, CsvImportPreviewOut, CsvImportPreviewRowOut, CsvImportRowErrorOut
+from app.csv_import_logic import PLATFORM_MAPS, parse_csv
+from app.database import get_connection, get_cursor
+from app.schemas import CsvImportOut, CsvImportPreviewOut, CsvImportPreviewRow, CsvImportRowError
 
 router = APIRouter(prefix="/csv-imports", tags=["csv-imports"])
 
-CSV_IMPORT_COLUMNS = (
+IMPORT_COLUMNS = (
     "id, account_id, source_platform, filename, imported_at, row_count, "
     "rows_inserted, rows_skipped_dupe, status, validation_errors"
 )
@@ -24,138 +24,145 @@ def _require_account_exists(cur, account_id: UUID) -> None:
         raise HTTPException(status_code=404, detail="Account not found")
 
 
-def _require_platform(platform: str) -> dict:
-    mapping = PLATFORM_MAPS.get(platform)
-    if mapping is None:
-        raise HTTPException(status_code=400, detail=f"Unknown platform '{platform}'. Known: {list(PLATFORM_MAPS)}")
-    return mapping
+def _require_known_platform(platform: str) -> None:
+    if platform not in PLATFORM_MAPS:
+        raise HTTPException(status_code=400, detail=f"platform must be one of {list(PLATFORM_MAPS)}")
 
 
-async def _read_and_validate(file: UploadFile, mapping: dict) -> tuple[int, list[ValidatedTrade], list[RowError]]:
-    raw = await file.read()
-    reader = csv.DictReader(io.StringIO(raw.decode("utf-8-sig")))
-    rows = list(reader)
-
-    errors: list[RowError] = []
-    valid_trades: list[ValidatedTrade] = []
-    for row_num, row in enumerate(rows, start=2):  # row 1 is the header
-        trade = validate_row(row, row_num, mapping, errors)
-        if trade:
-            valid_trades.append(trade)
-
-    return len(rows), valid_trades, errors
+def _read_csv_text(file: UploadFile) -> str:
+    try:
+        return file.file.read().decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Could not decode file as UTF-8 CSV")
 
 
 @router.post("/preview", response_model=CsvImportPreviewOut)
-async def preview_csv_import(
+def preview_csv_import(
     account_id: UUID = Form(...),
     platform: str = Form(...),
     file: UploadFile = File(...),
 ):
-    mapping = _require_platform(platform)
-    total_rows, valid_trades, errors = await _read_and_validate(file, mapping)
+    _require_known_platform(platform)
 
-    external_ids = [t.external_trade_id for t in valid_trades]
-    duplicates: set[str] = set()
     with get_cursor() as cur:
         _require_account_exists(cur, account_id)
-        if external_ids:
+
+        text = _read_csv_text(file)
+        valid_trades, errors = parse_csv(text, platform)
+
+        existing: set[str] = set()
+        ids = [t.external_trade_id for t in valid_trades]
+        if ids:
             cur.execute(
                 "SELECT external_trade_id FROM trades WHERE account_id = %s AND external_trade_id = ANY(%s)",
-                (str(account_id), external_ids),
+                (str(account_id), ids),
             )
-            duplicates = {r["external_trade_id"] for r in cur.fetchall()}
+            existing = {r["external_trade_id"] for r in cur.fetchall()}
 
-    preview_rows = [
-        CsvImportPreviewRowOut(
-            row_number=t.row_number,
-            external_trade_id=t.external_trade_id,
-            symbol=t.symbol,
-            direction=t.direction,
-            size=t.size,
-            entry_price=t.entry_price,
-            exit_price=t.exit_price,
-            entry_time=t.entry_time,
-            exit_time=t.exit_time,
-            fees=t.fees,
-            pnl_gross=t.pnl_gross,
-            is_duplicate=t.external_trade_id in duplicates,
+    seen: set[str] = set()
+    rows: list[CsvImportPreviewRow] = []
+    duplicate_count = 0
+    for t in valid_trades:
+        is_dupe = t.external_trade_id in existing or t.external_trade_id in seen
+        seen.add(t.external_trade_id)
+        if is_dupe:
+            duplicate_count += 1
+        rows.append(
+            CsvImportPreviewRow(
+                row_number=t.row_number,
+                external_trade_id=t.external_trade_id,
+                symbol=t.symbol,
+                direction=t.direction,
+                size=t.size,
+                entry_price=t.entry_price,
+                exit_price=t.exit_price,
+                entry_time=t.entry_time,
+                exit_time=t.exit_time,
+                fees=t.fees,
+                pnl_gross=t.pnl_gross,
+                is_duplicate=is_dupe,
+            )
         )
-        for t in valid_trades
-    ]
 
+    error_row_numbers = {e.row_number for e in errors}
     return CsvImportPreviewOut(
         platform=platform,
-        total_rows=total_rows,
-        valid_count=len(valid_trades) - len(duplicates),
-        duplicate_count=len(duplicates),
-        error_count=len(errors),
-        rows=preview_rows,
-        errors=[CsvImportRowErrorOut(row_number=e.row_number, field=e.field, message=e.message) for e in errors],
+        total_rows=len(valid_trades) + len(error_row_numbers),
+        valid_count=len(valid_trades) - duplicate_count,
+        duplicate_count=duplicate_count,
+        error_count=len(error_row_numbers),
+        rows=rows,
+        errors=[CsvImportRowError(row_number=e.row_number, field=e.field, message=e.message) for e in errors],
     )
 
 
 @router.post("", response_model=CsvImportOut, status_code=201)
-async def commit_csv_import(
+def commit_csv_import(
     account_id: UUID = Form(...),
     platform: str = Form(...),
     file: UploadFile = File(...),
 ):
-    mapping = _require_platform(platform)
-    total_rows, valid_trades, errors = await _read_and_validate(file, mapping)
-    status = "validated" if not errors else ("partial" if valid_trades else "failed")
+    _require_known_platform(platform)
 
     with get_cursor() as cur:
         _require_account_exists(cur, account_id)
 
-        cur.execute(
-            "INSERT INTO csv_imports (account_id, source_platform, filename, row_count, status, validation_errors) "
-            "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
-            (
-                str(account_id),
-                platform,
-                file.filename or "upload.csv",
-                total_rows,
-                status,
-                Json([{"row_number": e.row_number, "field": e.field, "message": e.message} for e in errors]),
-            ),
-        )
-        import_batch_id = cur.fetchone()["id"]
+    text = _read_csv_text(file)
+    valid_trades, errors = parse_csv(text, platform)
+    error_row_numbers = {e.row_number for e in errors}
+    total_rows = len(valid_trades) + len(error_row_numbers)
+    status = "validated" if not errors else ("partial" if valid_trades else "failed")
 
-        inserted = 0
-        skipped_dupe = 0
-        for t in valid_trades:
-            cur.execute("SAVEPOINT trade_insert")
-            try:
-                cur.execute(
-                    "INSERT INTO trades (account_id, import_batch_id, source_platform, external_trade_id, "
-                    "symbol, direction, size, entry_price, exit_price, entry_time, exit_time, fees, pnl_gross) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                    (
-                        str(account_id), str(import_batch_id), platform, t.external_trade_id,
-                        t.symbol, t.direction, t.size, t.entry_price, t.exit_price,
-                        t.entry_time, t.exit_time, t.fees, t.pnl_gross,
-                    ),
-                )
-                cur.execute("RELEASE SAVEPOINT trade_insert")
-                inserted += 1
-            except psycopg2.errors.UniqueViolation:
-                # Same account + broker trade id already exists — the expected,
-                # safe outcome of re-importing a file, not an error.
-                cur.execute("ROLLBACK TO SAVEPOINT trade_insert")
-                skipped_dupe += 1
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            import_batch_id = str(uuid.uuid4())
+            cur.execute(
+                "INSERT INTO csv_imports (id, account_id, source_platform, filename, row_count, status, validation_errors) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (
+                    import_batch_id,
+                    str(account_id),
+                    platform,
+                    file.filename or "upload.csv",
+                    total_rows,
+                    status,
+                    json.dumps([{"row_number": e.row_number, "field": e.field, "message": e.message} for e in errors]),
+                ),
+            )
 
-        cur.execute(
-            f"UPDATE csv_imports SET rows_inserted = %s, rows_skipped_dupe = %s "
-            f"WHERE id = %s RETURNING {CSV_IMPORT_COLUMNS}",
-            (inserted, skipped_dupe, str(import_batch_id)),
-        )
-        return cur.fetchone()
+            inserted = 0
+            skipped_dupe = 0
+            for trade in valid_trades:
+                cur.execute("SAVEPOINT trade_insert")
+                try:
+                    cur.execute(
+                        "INSERT INTO trades ("
+                        "account_id, import_batch_id, source_platform, external_trade_id, "
+                        "symbol, direction, size, entry_price, exit_price, entry_time, exit_time, fees, pnl_gross"
+                        ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                        (
+                            str(account_id), import_batch_id, platform, trade.external_trade_id,
+                            trade.symbol, trade.direction, trade.size, trade.entry_price, trade.exit_price,
+                            trade.entry_time, trade.exit_time, trade.fees, trade.pnl_gross,
+                        ),
+                    )
+                    cur.execute("RELEASE SAVEPOINT trade_insert")
+                    inserted += 1
+                except psycopg2.errors.UniqueViolation:
+                    cur.execute("ROLLBACK TO SAVEPOINT trade_insert")
+                    skipped_dupe += 1
+
+            cur.execute(
+                f"UPDATE csv_imports SET rows_inserted = %s, rows_skipped_dupe = %s WHERE id = %s "
+                f"RETURNING {IMPORT_COLUMNS}",
+                (inserted, skipped_dupe, import_batch_id),
+            )
+            return cur.fetchone()
 
 
 @router.get("", response_model=list[CsvImportOut])
 def list_csv_imports(account_id: UUID | None = None):
-    query = f"SELECT {CSV_IMPORT_COLUMNS} FROM csv_imports"
+    query = f"SELECT {IMPORT_COLUMNS} FROM csv_imports"
     params: list = []
     if account_id is not None:
         query += " WHERE account_id = %s"

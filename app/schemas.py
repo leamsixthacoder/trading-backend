@@ -75,6 +75,104 @@ class AllocationCreate(BaseModel):
     created_by: str = "manual"
 
 
+TradeDirection = Literal["long", "short"]
+
+
+class TradeOut(BaseModel):
+    id: UUID
+    account_id: UUID
+    import_batch_id: UUID | None
+    source_platform: str
+    external_trade_id: str
+    symbol: str
+    direction: TradeDirection
+    size: Decimal
+    entry_price: Decimal
+    exit_price: Decimal | None
+    entry_time: datetime
+    exit_time: datetime | None
+    fees: Decimal
+    pnl_gross: Decimal | None
+    pnl_net: Decimal
+    tags: list[str]
+    notes: str | None
+    created_at: datetime
+
+
+class TradeCreate(BaseModel):
+    account_id: UUID
+    symbol: str
+    direction: TradeDirection
+    size: Decimal
+    entry_price: Decimal
+    exit_price: Decimal | None = None
+    entry_time: datetime
+    exit_time: datetime | None = None
+    fees: Decimal = Decimal("0")
+    pnl_gross: Decimal | None = None
+    tags: list[str] = []
+    notes: str | None = None
+    external_trade_id: str | None = None
+
+
+class TradeUpdate(BaseModel):
+    symbol: str | None = None
+    direction: TradeDirection | None = None
+    size: Decimal | None = None
+    entry_price: Decimal | None = None
+    exit_price: Decimal | None = None
+    entry_time: datetime | None = None
+    exit_time: datetime | None = None
+    fees: Decimal | None = None
+    pnl_gross: Decimal | None = None
+    tags: list[str] | None = None
+    notes: str | None = None
+
+
+class CsvImportRowError(BaseModel):
+    row_number: int
+    field: str
+    message: str
+
+
+class CsvImportPreviewRow(BaseModel):
+    row_number: int
+    external_trade_id: str
+    symbol: str
+    direction: TradeDirection
+    size: Decimal
+    entry_price: Decimal
+    exit_price: Decimal | None
+    entry_time: datetime
+    exit_time: datetime | None
+    fees: Decimal
+    pnl_gross: Decimal | None
+    is_duplicate: bool
+
+
+class CsvImportPreviewOut(BaseModel):
+    platform: str
+    total_rows: int
+    valid_count: int
+    duplicate_count: int
+    error_count: int
+    rows: list[CsvImportPreviewRow]
+    errors: list[CsvImportRowError]
+
+
+class CsvImportOut(BaseModel):
+    id: UUID
+    account_id: UUID
+    source_platform: str
+    filename: str
+    imported_at: datetime
+    row_count: int
+    rows_inserted: int
+    rows_skipped_dupe: int
+    status: str
+    validation_errors: list[dict]
+
+
 class PortfolioBalanceByType(BaseModel):
     account_type: str
     account_count: int
@@ -401,106 +499,6 @@ class TradeReviewCreate(BaseModel):
     what_happened: str | None = None
     what_went_well: str | None = None
     what_to_change: str | None = None
-
-
-TradeDirection = Literal["long", "short"]
-
-
-class TradeOut(BaseModel):
-    id: UUID
-    account_id: UUID
-    import_batch_id: UUID | None
-    source_platform: str
-    external_trade_id: str
-    symbol: str
-    direction: TradeDirection
-    size: Decimal
-    entry_price: Decimal
-    exit_price: Decimal | None
-    entry_time: datetime
-    exit_time: datetime | None
-    fees: Decimal
-    pnl_gross: Decimal | None
-    pnl_net: Decimal
-    tags: list[str]
-    notes: str | None
-    created_at: datetime
-
-
-class TradeCreate(BaseModel):
-    account_id: UUID
-    symbol: str
-    direction: TradeDirection
-    size: Decimal
-    entry_price: Decimal
-    exit_price: Decimal | None = None
-    entry_time: datetime
-    exit_time: datetime | None = None
-    fees: Decimal = Decimal("0")
-    pnl_gross: Decimal | None = None
-    tags: list[str] = []
-    notes: str | None = None
-
-
-class TradeUpdate(BaseModel):
-    symbol: str | None = None
-    direction: TradeDirection | None = None
-    size: Decimal | None = None
-    entry_price: Decimal | None = None
-    exit_price: Decimal | None = None
-    entry_time: datetime | None = None
-    exit_time: datetime | None = None
-    fees: Decimal | None = None
-    pnl_gross: Decimal | None = None
-    tags: list[str] | None = None
-    notes: str | None = None
-
-
-class CsvImportRowErrorOut(BaseModel):
-    row_number: int
-    field: str
-    message: str
-
-
-class CsvImportPreviewRowOut(BaseModel):
-    row_number: int
-    external_trade_id: str
-    symbol: str
-    direction: TradeDirection
-    size: Decimal
-    entry_price: Decimal
-    exit_price: Decimal | None
-    entry_time: datetime
-    exit_time: datetime | None
-    fees: Decimal
-    pnl_gross: Decimal | None
-    is_duplicate: bool
-
-
-class CsvImportPreviewOut(BaseModel):
-    platform: str
-    total_rows: int
-    valid_count: int
-    duplicate_count: int
-    error_count: int
-    rows: list[CsvImportPreviewRowOut]
-    errors: list[CsvImportRowErrorOut]
-
-
-CsvImportStatus = Literal["pending", "validated", "failed", "partial"]
-
-
-class CsvImportOut(BaseModel):
-    id: UUID
-    account_id: UUID
-    source_platform: str
-    filename: str
-    imported_at: datetime
-    row_count: int
-    rows_inserted: int
-    rows_skipped_dupe: int
-    status: CsvImportStatus
-    validation_errors: list[CsvImportRowErrorOut]
 
 
 AccountRuleType = Literal["profit_target", "daily_loss_limit", "max_loss_limit"]

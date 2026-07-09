@@ -1,7 +1,8 @@
-from datetime import date
+from datetime import date, timedelta
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException
+import psycopg2
+from fastapi import APIRouter, HTTPException, Query
 
 from app.database import get_cursor
 from app.schemas import TradeCreate, TradeOut, TradeUpdate
@@ -23,41 +24,55 @@ def _require_account_exists(cur, account_id: UUID) -> None:
 
 @router.post("", response_model=TradeOut, status_code=201)
 def create_trade(body: TradeCreate):
+    # Manually-entered trades have no broker fill id — mint one so the
+    # (account_id, external_trade_id) dedup constraint still holds.
+    external_trade_id = body.external_trade_id or f"manual-{uuid4()}"
+
     with get_cursor() as cur:
         _require_account_exists(cur, body.account_id)
 
-        # Manually-logged trades have no broker trade id to dedupe on — mint
-        # one so they still satisfy UNIQUE(account_id, external_trade_id)
-        # without colliding with a later CSV import of the same fill.
-        external_trade_id = f"manual-{uuid4()}"
-
-        cur.execute(
-            f"INSERT INTO trades (account_id, source_platform, external_trade_id, "
-            f"symbol, direction, size, entry_price, exit_price, entry_time, exit_time, "
-            f"fees, pnl_gross, tags, notes) "
-            f"VALUES (%s, 'manual', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
-            f"RETURNING {TRADE_COLUMNS}",
-            (
-                str(body.account_id),
-                external_trade_id,
-                body.symbol,
-                body.direction,
-                body.size,
-                body.entry_price,
-                body.exit_price,
-                body.entry_time,
-                body.exit_time,
-                body.fees,
-                body.pnl_gross,
-                body.tags,
-                body.notes,
-            ),
-        )
+        try:
+            cur.execute(
+                "INSERT INTO trades ("
+                "account_id, import_batch_id, source_platform, external_trade_id, "
+                "symbol, direction, size, entry_price, exit_price, entry_time, exit_time, "
+                "fees, pnl_gross, tags, notes"
+                ") VALUES (%s, NULL, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                f"RETURNING {TRADE_COLUMNS}",
+                (
+                    str(body.account_id),
+                    "manual",
+                    external_trade_id,
+                    body.symbol,
+                    body.direction,
+                    body.size,
+                    body.entry_price,
+                    body.exit_price,
+                    body.entry_time,
+                    body.exit_time,
+                    body.fees,
+                    body.pnl_gross,
+                    body.tags,
+                    body.notes,
+                ),
+            )
+        except psycopg2.errors.UniqueViolation:
+            raise HTTPException(
+                status_code=409,
+                detail="A trade with this external_trade_id already exists for this account",
+            )
         return cur.fetchone()
 
 
 @router.get("", response_model=list[TradeOut])
-def list_trades(account_id: UUID | None = None, symbol: str | None = None, exit_date: date | None = None):
+def list_trades(
+    account_id: UUID | None = None,
+    symbol: str | None = None,
+    direction: str | None = None,
+    from_: date | None = Query(default=None, alias="from"),
+    to: date | None = None,
+    exit_date: date | None = None,
+):
     query = f"SELECT {TRADE_COLUMNS} FROM trades"
     params: list = []
     conditions = []
@@ -67,6 +82,19 @@ def list_trades(account_id: UUID | None = None, symbol: str | None = None, exit_
     if symbol is not None:
         conditions.append("symbol = %s")
         params.append(symbol)
+    if direction is not None:
+        conditions.append("direction = %s")
+        params.append(direction)
+    if from_ is not None:
+        conditions.append("entry_time >= %s")
+        params.append(from_)
+    if to is not None:
+        # `to` is a calendar date; comparing entry_time (a timestamp)
+        # against midnight of that date would exclude every trade from
+        # that day except one at exactly 00:00. Use the exclusive start
+        # of the next day instead so `to` means "through end of that day".
+        conditions.append("entry_time < %s")
+        params.append(to + timedelta(days=1))
     if exit_date is not None:
         # Same grouping as account_pnl_by_day/account_pnl_by_month (migration
         # 004): a trade counts toward the day it closed, not the day it

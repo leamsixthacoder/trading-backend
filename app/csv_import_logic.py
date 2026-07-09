@@ -1,13 +1,16 @@
-"""Platform column-mapping/validation for broker CSV trade exports, used by
-the /csv-imports API route.
-
-Deliberately NOT shared with scripts/import_csv.py: that script is documented
-(README.md, BACKEND_SETUP.md) to run standalone as `python scripts/import_csv.py`
-with no `app` package on its path, so importing from here would break it.
-Keep PLATFORM_MAPS in sync by hand if a broker's export format changes.
+"""
+CSV parsing/validation shared by the /csv-imports HTTP endpoints and (in
+spirit) scripts/import_csv.py — PLATFORM_MAPS and the row-validation rules
+here are a direct port of that script's logic, kept in one place so the
+web review flow and the CLI path apply the exact same rules to a row.
+NOTE: scripts/import_csv.py itself is not wired to import from here (it's
+a standalone tool run against a raw DSN); if the two ever drift, that
+script remains the CLI's source of truth and this module the API's.
 """
 
-from dataclasses import dataclass, field
+import csv
+import io
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
@@ -79,7 +82,7 @@ class ValidatedTrade:
     pnl_gross: Decimal | None
 
 
-def _parse_decimal(raw: str | None, field_name: str, row_num: int, errors: list[RowError]) -> Decimal | None:
+def parse_decimal(raw: str | None, field_name: str, row_num: int, errors: list[RowError]) -> Decimal | None:
     if raw is None or raw.strip() == "":
         return None
     try:
@@ -92,7 +95,7 @@ def _parse_decimal(raw: str | None, field_name: str, row_num: int, errors: list[
         return None
 
 
-def _parse_timestamp(raw: str | None, fmt: str, field_name: str, row_num: int, errors: list[RowError]) -> datetime | None:
+def parse_timestamp(raw: str | None, fmt: str, field_name: str, row_num: int, errors: list[RowError]) -> datetime | None:
     if raw is None or raw.strip() == "":
         return None
     try:
@@ -118,26 +121,30 @@ def validate_row(row: dict, row_num: int, mapping: dict, errors: list[RowError])
     if direction is None:
         errors.append(RowError(row_num, "direction", f"Unrecognized direction value '{raw_direction}'"))
 
-    size = _parse_decimal(row.get(mapping["size"]), "size", row_num, errors)
+    size = parse_decimal(row.get(mapping["size"]), "size", row_num, errors)
     if size is not None and size <= 0:
         errors.append(RowError(row_num, "size", f"Size must be positive, got {size}"))
 
-    entry_price = _parse_decimal(row.get(mapping["entry_price"]), "entry_price", row_num, errors)
-    exit_price = _parse_decimal(row.get(mapping["exit_price"]), "exit_price", row_num, errors)
-    fees = _parse_decimal(row.get(mapping["fees"]), "fees", row_num, errors) or Decimal("0")
-    pnl_gross = _parse_decimal(row.get(mapping["pnl_gross"]), "pnl_gross", row_num, errors)
+    entry_price = parse_decimal(row.get(mapping["entry_price"]), "entry_price", row_num, errors)
+    exit_price = parse_decimal(row.get(mapping["exit_price"]), "exit_price", row_num, errors)
+    fees = parse_decimal(row.get(mapping["fees"]), "fees", row_num, errors) or Decimal("0")
+    pnl_gross = parse_decimal(row.get(mapping["pnl_gross"]), "pnl_gross", row_num, errors)
 
-    entry_time = _parse_timestamp(row.get(mapping["entry_time"]), mapping["time_format"], "entry_time", row_num, errors)
-    exit_time = _parse_timestamp(row.get(mapping["exit_time"]), mapping["time_format"], "exit_time", row_num, errors)
+    entry_time = parse_timestamp(row.get(mapping["entry_time"]), mapping["time_format"], "entry_time", row_num, errors)
+    exit_time = parse_timestamp(row.get(mapping["exit_time"]), mapping["time_format"], "exit_time", row_num, errors)
 
     if entry_time is None:
         errors.append(RowError(row_num, "entry_time", "Missing/unparseable entry time — required field"))
 
-    if entry_time and exit_time and exit_time < entry_time:
-        errors.append(RowError(row_num, "exit_time", "Exit time is before entry time"))
-
+    # entry_price is NOT NULL on trades — a blank/unparseable value must
+    # reject the row here rather than reach the DB as an unhandled insert
+    # failure (parse_decimal already reports a *malformed* value; this
+    # catches a plain empty cell, which parse_decimal treats as "no error").
     if entry_price is None:
         errors.append(RowError(row_num, "entry_price", "Missing/unparseable entry price — required field"))
+
+    if entry_time and exit_time and exit_time < entry_time:
+        errors.append(RowError(row_num, "exit_time", "Exit time is before entry time"))
 
     if len(errors) > row_errors_before:
         return None
@@ -155,3 +162,17 @@ def validate_row(row: dict, row_num: int, mapping: dict, errors: list[RowError])
         fees=fees,
         pnl_gross=pnl_gross,
     )
+
+
+def parse_csv(text: str, platform: str) -> tuple[list[ValidatedTrade], list[RowError]]:
+    mapping = PLATFORM_MAPS[platform]
+    errors: list[RowError] = []
+    valid: list[ValidatedTrade] = []
+
+    reader = csv.DictReader(io.StringIO(text))
+    for row_num, row in enumerate(reader, start=2):
+        trade = validate_row(row, row_num, mapping, errors)
+        if trade:
+            valid.append(trade)
+
+    return valid, errors
