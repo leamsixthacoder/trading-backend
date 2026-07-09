@@ -75,6 +75,46 @@ class AllocationCreate(BaseModel):
     created_by: str = "manual"
 
 
+TradeDirection = Literal["long", "short"]
+
+
+class TradeOut(BaseModel):
+    id: UUID
+    account_id: UUID
+    import_batch_id: UUID | None
+    source_platform: str
+    external_trade_id: str
+    symbol: str
+    direction: TradeDirection
+    size: Decimal
+    entry_price: Decimal
+    exit_price: Decimal | None
+    entry_time: datetime
+    exit_time: datetime | None
+    fees: Decimal
+    pnl_gross: Decimal | None
+    pnl_net: Decimal
+    tags: list[str]
+    notes: str | None
+    created_at: datetime
+
+
+class TradeCreate(BaseModel):
+    account_id: UUID
+    symbol: str
+    direction: TradeDirection
+    size: Decimal
+    entry_price: Decimal
+    exit_price: Decimal | None = None
+    entry_time: datetime
+    exit_time: datetime | None = None
+    fees: Decimal = Decimal("0")
+    pnl_gross: Decimal | None = None
+    tags: list[str] = []
+    notes: str | None = None
+    external_trade_id: str | None = None
+
+
 class PortfolioBalanceByType(BaseModel):
     account_type: str
     account_count: int
