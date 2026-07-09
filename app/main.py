@@ -5,6 +5,7 @@ from app.routers import (
     accounts,
     aggregate_risk,
     analytics,
+    csv_imports,
     dashboard,
     investments,
     journal,
@@ -12,6 +13,7 @@ from app.routers import (
     portfolio,
     risk,
     strategies,
+    trades,
     wellness,
 )
 
@@ -36,6 +38,8 @@ app.include_router(investments.router)
 app.include_router(payouts.router)
 app.include_router(aggregate_risk.router)
 app.include_router(wellness.router)
+app.include_router(trades.router)
+app.include_router(csv_imports.router)
 
 
 @app.get("/health")
