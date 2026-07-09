@@ -11,6 +11,7 @@ from app.routers import (
     journal,
     payouts,
     portfolio,
+    quotes,
     risk,
     strategies,
     trades,
@@ -40,6 +41,7 @@ app.include_router(aggregate_risk.router)
 app.include_router(wellness.router)
 app.include_router(trades.router)
 app.include_router(csv_imports.router)
+app.include_router(quotes.router)
 
 
 @app.get("/health")

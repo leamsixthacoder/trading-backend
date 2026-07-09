@@ -522,3 +522,10 @@ class AccountRuleCreate(BaseModel):
 
 class AccountRuleUpdate(BaseModel):
     threshold: Decimal
+
+
+class QuoteOut(BaseModel):
+    symbol: str
+    price: Decimal | None
+    as_of: datetime | None
+    error: str | None
