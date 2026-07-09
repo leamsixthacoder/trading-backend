@@ -1,3 +1,4 @@
+from datetime import date
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException
@@ -56,7 +57,7 @@ def create_trade(body: TradeCreate):
 
 
 @router.get("", response_model=list[TradeOut])
-def list_trades(account_id: UUID | None = None, symbol: str | None = None):
+def list_trades(account_id: UUID | None = None, symbol: str | None = None, exit_date: date | None = None):
     query = f"SELECT {TRADE_COLUMNS} FROM trades"
     params: list = []
     conditions = []
@@ -66,6 +67,12 @@ def list_trades(account_id: UUID | None = None, symbol: str | None = None):
     if symbol is not None:
         conditions.append("symbol = %s")
         params.append(symbol)
+    if exit_date is not None:
+        # Same grouping as account_pnl_by_day/account_pnl_by_month (migration
+        # 004): a trade counts toward the day it closed, not the day it
+        # opened, and only closed trades have a realized P&L to show.
+        conditions.append("date_trunc('day', exit_time) = %s")
+        params.append(exit_date)
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
     query += " ORDER BY entry_time DESC"
