@@ -501,3 +501,24 @@ class CsvImportOut(BaseModel):
     rows_skipped_dupe: int
     status: CsvImportStatus
     validation_errors: list[CsvImportRowErrorOut]
+
+
+AccountRuleType = Literal["profit_target", "daily_loss_limit", "max_loss_limit"]
+
+
+class AccountRuleOut(BaseModel):
+    id: UUID
+    account_id: UUID
+    rule_type: AccountRuleType
+    threshold: Decimal
+    created_at: datetime
+    updated_at: datetime
+
+
+class AccountRuleCreate(BaseModel):
+    rule_type: AccountRuleType
+    threshold: Decimal
+
+
+class AccountRuleUpdate(BaseModel):
+    threshold: Decimal

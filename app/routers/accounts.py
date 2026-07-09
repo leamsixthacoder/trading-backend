@@ -1,6 +1,7 @@
 from datetime import date
 from uuid import UUID
 
+import psycopg2
 from fastapi import APIRouter, HTTPException
 from psycopg2.extras import Json
 
@@ -8,6 +9,9 @@ from app.database import get_cursor
 from app.schemas import (
     AccountBalanceOut,
     AccountOut,
+    AccountRuleCreate,
+    AccountRuleOut,
+    AccountRuleUpdate,
     AccountStatusHistoryOut,
     AllocationCreate,
     AllocationOut,
@@ -137,3 +141,50 @@ def create_account_allocation(account_id: UUID, body: AllocationCreate):
             ),
         )
         return cur.fetchone()
+
+
+ACCOUNT_RULE_COLUMNS = "id, account_id, rule_type, threshold, created_at, updated_at"
+
+
+@router.post("/{account_id}/rules", response_model=AccountRuleOut, status_code=201)
+def create_account_rule(account_id: UUID, body: AccountRuleCreate):
+    with get_cursor() as cur:
+        _require_account_exists(cur, account_id)
+        try:
+            cur.execute(
+                f"INSERT INTO account_rules (account_id, rule_type, threshold) "
+                f"VALUES (%s, %s, %s) RETURNING {ACCOUNT_RULE_COLUMNS}",
+                (str(account_id), body.rule_type, body.threshold),
+            )
+        except psycopg2.errors.UniqueViolation:
+            raise HTTPException(
+                status_code=409,
+                detail=f"A '{body.rule_type}' rule already exists for this account — use PATCH to update it",
+            )
+        return cur.fetchone()
+
+
+@router.get("/{account_id}/rules", response_model=list[AccountRuleOut])
+def list_account_rules(account_id: UUID):
+    with get_cursor() as cur:
+        _require_account_exists(cur, account_id)
+        cur.execute(
+            f"SELECT {ACCOUNT_RULE_COLUMNS} FROM account_rules "
+            f"WHERE account_id = %s ORDER BY rule_type",
+            (str(account_id),),
+        )
+        return cur.fetchall()
+
+
+@router.patch("/{account_id}/rules/{rule_id}", response_model=AccountRuleOut)
+def update_account_rule(account_id: UUID, rule_id: UUID, body: AccountRuleUpdate):
+    with get_cursor() as cur:
+        cur.execute(
+            f"UPDATE account_rules SET threshold = %s, updated_at = now() "
+            f"WHERE id = %s AND account_id = %s RETURNING {ACCOUNT_RULE_COLUMNS}",
+            (body.threshold, str(rule_id), str(account_id)),
+        )
+        row = cur.fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Account rule not found")
+        return row
