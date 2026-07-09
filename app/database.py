@@ -25,3 +25,20 @@ def get_cursor():
         raise
     finally:
         _pool.putconn(conn)
+
+
+@contextmanager
+def get_connection():
+    """Raw connection access for callers that need multiple cursors or
+    SAVEPOINT control within one transaction (e.g. per-row duplicate
+    handling on a batch insert) — get_cursor()'s single implicit
+    transaction doesn't expose that."""
+    conn = _pool.getconn()
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        _pool.putconn(conn)

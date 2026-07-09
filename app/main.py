@@ -5,6 +5,7 @@ from app.routers import (
     accounts,
     aggregate_risk,
     analytics,
+    csv_imports,
     dashboard,
     investments,
     journal,
@@ -35,6 +36,7 @@ app.include_router(accounts.router)
 app.include_router(portfolio.router)
 app.include_router(journal.router)
 app.include_router(trades.router)
+app.include_router(csv_imports.router)
 app.include_router(risk.router)
 app.include_router(analytics.router)
 app.include_router(dashboard.router)

@@ -115,6 +115,50 @@ class TradeCreate(BaseModel):
     external_trade_id: str | None = None
 
 
+class CsvImportRowError(BaseModel):
+    row_number: int
+    field: str
+    message: str
+
+
+class CsvImportPreviewRow(BaseModel):
+    row_number: int
+    external_trade_id: str
+    symbol: str
+    direction: TradeDirection
+    size: Decimal
+    entry_price: Decimal
+    exit_price: Decimal | None
+    entry_time: datetime
+    exit_time: datetime | None
+    fees: Decimal
+    pnl_gross: Decimal | None
+    is_duplicate: bool
+
+
+class CsvImportPreviewOut(BaseModel):
+    platform: str
+    total_rows: int
+    valid_count: int
+    duplicate_count: int
+    error_count: int
+    rows: list[CsvImportPreviewRow]
+    errors: list[CsvImportRowError]
+
+
+class CsvImportOut(BaseModel):
+    id: UUID
+    account_id: UUID
+    source_platform: str
+    filename: str
+    imported_at: datetime
+    row_count: int
+    rows_inserted: int
+    rows_skipped_dupe: int
+    status: str
+    validation_errors: list[dict]
+
+
 class PortfolioBalanceByType(BaseModel):
     account_type: str
     account_count: int
