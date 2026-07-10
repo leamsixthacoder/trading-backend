@@ -8,6 +8,7 @@ from psycopg2.extras import Json
 from app.database import get_cursor
 from app.schemas import (
     AccountBalanceOut,
+    AccountCreate,
     AccountOut,
     AccountRuleCreate,
     AccountRuleOut,
@@ -20,6 +21,13 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
+
+PROVIDER_BY_TYPE = {
+    "funded_lucid": "lucid_flex",
+    "funded_topstep": "topstep",
+    "personal_live": None,
+    "personal_portfolio": None,
+}
 
 
 def _require_account_exists(cur, account_id: UUID) -> None:
@@ -36,6 +44,18 @@ def list_accounts():
             "FROM accounts ORDER BY label"
         )
         return cur.fetchall()
+
+
+@router.post("", response_model=AccountOut, status_code=201)
+def create_account(body: AccountCreate):
+    with get_cursor() as cur:
+        cur.execute(
+            "INSERT INTO accounts (label, account_type, provider, capital_base) "
+            "VALUES (%s, %s, %s, %s) "
+            "RETURNING id, label, account_type, provider, capital_base, status, created_at, closed_at",
+            (body.label, body.account_type, PROVIDER_BY_TYPE[body.account_type], body.capital_base),
+        )
+        return cur.fetchone()
 
 
 @router.get("/{account_id}/balance", response_model=AccountBalanceOut)
@@ -188,3 +208,14 @@ def update_account_rule(account_id: UUID, rule_id: UUID, body: AccountRuleUpdate
         if row is None:
             raise HTTPException(status_code=404, detail="Account rule not found")
         return row
+
+
+@router.delete("/{account_id}/rules/{rule_id}", status_code=204)
+def delete_account_rule(account_id: UUID, rule_id: UUID):
+    with get_cursor() as cur:
+        cur.execute(
+            "DELETE FROM account_rules WHERE id = %s AND account_id = %s",
+            (str(rule_id), str(account_id)),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Account rule not found")

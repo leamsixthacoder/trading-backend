@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException
 
 from app.database import get_cursor
-from app.schemas import RiskAlertOut, RiskRuleCreate, RiskRuleOut
+from app.schemas import RiskAlertOut, RiskRuleCreate, RiskRuleOut, RiskRuleUpdate
 
 router = APIRouter(tags=["risk"])
 
@@ -37,6 +37,29 @@ def list_risk_rules(account_id: UUID | None = None):
     with get_cursor() as cur:
         cur.execute(query, params)
         return cur.fetchall()
+
+
+@router.patch("/risk-rules/{rule_id}", response_model=RiskRuleOut)
+def update_risk_rule(rule_id: UUID, body: RiskRuleUpdate):
+    with get_cursor() as cur:
+        cur.execute(
+            "UPDATE risk_rules SET threshold = %s, active = %s "
+            "WHERE id = %s "
+            "RETURNING id, account_id, rule_type, threshold, active, created_at",
+            (body.threshold, body.active, str(rule_id)),
+        )
+        row = cur.fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Risk rule not found")
+        return row
+
+
+@router.delete("/risk-rules/{rule_id}", status_code=204)
+def delete_risk_rule(rule_id: UUID):
+    with get_cursor() as cur:
+        cur.execute("DELETE FROM risk_rules WHERE id = %s", (str(rule_id),))
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Risk rule not found")
 
 
 @router.get("/risk-alerts", response_model=list[RiskAlertOut])

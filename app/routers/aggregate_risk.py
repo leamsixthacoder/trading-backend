@@ -1,7 +1,14 @@
+from uuid import UUID
+
 from fastapi import APIRouter, HTTPException
 
 from app.database import get_cursor
-from app.schemas import AggregateRiskRuleCreate, AggregateRiskRuleOut, AggregateRiskStatusOut
+from app.schemas import (
+    AggregateRiskRuleCreate,
+    AggregateRiskRuleOut,
+    AggregateRiskRuleUpdate,
+    AggregateRiskStatusOut,
+)
 
 router = APIRouter(tags=["aggregate-risk"])
 
@@ -32,6 +39,29 @@ def list_aggregate_risk_rules():
     with get_cursor() as cur:
         cur.execute("SELECT id, rule_type, scope, threshold, active FROM aggregate_risk_rules ORDER BY rule_type")
         return cur.fetchall()
+
+
+@router.patch("/aggregate-risk-rules/{rule_id}", response_model=AggregateRiskRuleOut)
+def update_aggregate_risk_rule(rule_id: UUID, body: AggregateRiskRuleUpdate):
+    with get_cursor() as cur:
+        cur.execute(
+            "UPDATE aggregate_risk_rules SET threshold = %s, active = %s "
+            "WHERE id = %s "
+            "RETURNING id, rule_type, scope, threshold, active",
+            (body.threshold, body.active, str(rule_id)),
+        )
+        row = cur.fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Aggregate risk rule not found")
+        return row
+
+
+@router.delete("/aggregate-risk-rules/{rule_id}", status_code=204)
+def delete_aggregate_risk_rule(rule_id: UUID):
+    with get_cursor() as cur:
+        cur.execute("DELETE FROM aggregate_risk_rules WHERE id = %s", (str(rule_id),))
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Aggregate risk rule not found")
 
 
 def _total_open_risk(cur, scope_filter: str):

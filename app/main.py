@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import (
+    account_groups,
     accounts,
     aggregate_risk,
     analytics,
@@ -15,6 +16,7 @@ from app.routers import (
     risk,
     strategies,
     trades,
+    trading_plans,
     wellness,
 )
 
@@ -29,11 +31,12 @@ app.add_middleware(
         "http://localhost:5174",
         "http://127.0.0.1:5174",
     ],
-    allow_methods=["GET", "POST", "PATCH"],
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
     allow_headers=["*"],
 )
 
 app.include_router(accounts.router)
+app.include_router(account_groups.router)
 app.include_router(portfolio.router)
 app.include_router(journal.router)
 app.include_router(trades.router)
@@ -47,6 +50,7 @@ app.include_router(payouts.router)
 app.include_router(aggregate_risk.router)
 app.include_router(wellness.router)
 app.include_router(quotes.router)
+app.include_router(trading_plans.router)
 
 
 @app.get("/health")

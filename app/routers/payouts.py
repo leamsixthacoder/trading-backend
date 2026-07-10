@@ -4,7 +4,13 @@ from fastapi import APIRouter, HTTPException
 from psycopg2.extras import Json
 
 from app.database import get_cursor
-from app.schemas import AllocationOut, PayoutEligibilityOut, PayoutRuleCreate, PayoutRuleOut
+from app.schemas import (
+    AllocationOut,
+    PayoutEligibilityOut,
+    PayoutRuleCreate,
+    PayoutRuleOut,
+    PayoutRuleUpdate,
+)
 
 router = APIRouter(tags=["payouts"])
 
@@ -45,6 +51,38 @@ def list_payout_rules(account_type: str | None = None):
     with get_cursor() as cur:
         cur.execute(query, params)
         return cur.fetchall()
+
+
+@router.patch("/payout-rules/{rule_id}", response_model=PayoutRuleOut)
+def update_payout_rule(rule_id: UUID, body: PayoutRuleUpdate):
+    with get_cursor() as cur:
+        cur.execute(
+            "UPDATE payout_rules SET profit_split_pct = %s, min_payout_amount = %s, "
+            "payout_frequency = %s, notes = %s, effective_date = COALESCE(%s, effective_date) "
+            "WHERE id = %s "
+            "RETURNING id, account_type, profit_split_pct, min_payout_amount, "
+            "payout_frequency, notes, effective_date",
+            (
+                body.profit_split_pct,
+                body.min_payout_amount,
+                body.payout_frequency,
+                body.notes,
+                body.effective_date,
+                str(rule_id),
+            ),
+        )
+        row = cur.fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Payout rule not found")
+        return row
+
+
+@router.delete("/payout-rules/{rule_id}", status_code=204)
+def delete_payout_rule(rule_id: UUID):
+    with get_cursor() as cur:
+        cur.execute("DELETE FROM payout_rules WHERE id = %s", (str(rule_id),))
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Payout rule not found")
 
 
 @router.get("/accounts/{account_id}/payout-eligibility", response_model=PayoutEligibilityOut)

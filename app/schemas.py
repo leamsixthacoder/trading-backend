@@ -3,7 +3,10 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+
+AccountType = Literal["funded_lucid", "funded_topstep", "personal_live", "personal_portfolio"]
 
 
 class AccountOut(BaseModel):
@@ -15,6 +18,12 @@ class AccountOut(BaseModel):
     status: str
     created_at: datetime
     closed_at: datetime | None
+
+
+class AccountCreate(BaseModel):
+    label: str
+    account_type: AccountType
+    capital_base: Decimal = Field(gt=0)
 
 
 class AccountBalanceOut(BaseModel):
@@ -242,6 +251,11 @@ class RiskRuleCreate(BaseModel):
     active: bool = True
 
 
+class RiskRuleUpdate(BaseModel):
+    threshold: Decimal
+    active: bool
+
+
 class RiskAlertOut(BaseModel):
     id: UUID
     account_id: UUID
@@ -431,6 +445,14 @@ class PayoutRuleCreate(BaseModel):
     effective_date: date | None = None
 
 
+class PayoutRuleUpdate(BaseModel):
+    profit_split_pct: Decimal
+    min_payout_amount: Decimal | None = None
+    payout_frequency: str | None = None
+    notes: str | None = None
+    effective_date: date | None = None
+
+
 class PayoutEligibilityOut(BaseModel):
     account_id: UUID
     checked_at: datetime
@@ -453,6 +475,11 @@ class AggregateRiskRuleCreate(BaseModel):
     scope: str
     threshold: Decimal
     active: bool = True
+
+
+class AggregateRiskRuleUpdate(BaseModel):
+    threshold: Decimal
+    active: bool
 
 
 class AggregateRiskBreach(BaseModel):
@@ -527,3 +554,132 @@ class QuoteOut(BaseModel):
     price: Decimal | None
     as_of: datetime | None
     error: str | None
+
+
+class AccountGroupOut(BaseModel):
+    id: UUID
+    name: str
+    created_at: datetime
+
+
+class AccountGroupCreate(BaseModel):
+    name: str
+
+
+class AccountGroupUpdate(BaseModel):
+    name: str
+
+
+class AccountGroupMemberOut(BaseModel):
+    group_id: UUID
+    account_id: UUID
+    added_at: datetime
+
+
+class AccountGroupMemberCreate(BaseModel):
+    account_id: UUID
+
+
+class RuleViolationOut(BaseModel):
+    account_id: UUID
+    account_label: str
+    rule_type: AccountRuleType
+    threshold: Decimal
+    breached_days: int
+    currently_breached: bool
+
+
+class RuleViolationsSummaryOut(BaseModel):
+    start: date
+    end: date
+    violations: list[RuleViolationOut]
+    total_breached_days: int
+
+
+TradingPlanStatus = Literal["active", "archived"]
+
+
+class TradingPlanOut(BaseModel):
+    id: UUID
+    name: str
+    description: str | None
+    account_id: UUID | None
+    account_group_id: UUID | None
+    status: TradingPlanStatus
+    created_at: datetime
+    updated_at: datetime
+
+
+class TradingPlanCreate(BaseModel):
+    name: str
+    description: str | None = None
+    account_id: UUID | None = None
+    account_group_id: UUID | None = None
+
+
+class TradingPlanUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    status: TradingPlanStatus | None = None
+
+
+class TradingPlanStrategyOut(BaseModel):
+    plan_id: UUID
+    strategy_id: UUID
+    strategy_name: str
+    strategy_status: str
+    added_at: datetime
+
+
+class TradingPlanStrategyCreate(BaseModel):
+    strategy_id: UUID
+
+
+class ChecklistItemOut(BaseModel):
+    id: UUID
+    plan_id: UUID
+    label: str
+    sort_order: int
+    created_at: datetime
+
+
+class ChecklistItemCreate(BaseModel):
+    label: str
+    sort_order: int = 0
+
+
+class ChecklistItemUpdate(BaseModel):
+    label: str | None = None
+    sort_order: int | None = None
+
+
+class DailyLogItemOut(BaseModel):
+    checklist_item_id: UUID
+    label: str
+    sort_order: int
+    checked: bool
+    checked_at: datetime | None
+
+
+class DailyLogOut(BaseModel):
+    plan_id: UUID
+    log_date: date
+    notes: str | None
+    items: list[DailyLogItemOut]
+
+
+class DailyLogItemUpdate(BaseModel):
+    checklist_item_id: UUID
+    checked: bool
+
+
+class DailyLogUpdate(BaseModel):
+    notes: str | None = None
+    items: list[DailyLogItemUpdate] = []
+
+
+class DailyLogSummaryOut(BaseModel):
+    log_date: date
+    notes: str | None
+    total_items: int
+    checked_items: int
